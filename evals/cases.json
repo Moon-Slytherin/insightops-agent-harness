@@ -1,0 +1,14 @@
+[
+  {"id":"trend-01","question":"3.2.1版本发布后支付失败投诉为什么增加？","expects_evidence":true,"required_terms":["260.0%","3.2.1"],"required_tools":["sql_analytics","knowledge_search"]},
+  {"id":"trend-02","question":"最近支付问题发生了什么？","expects_evidence":true,"required_terms":["18","5"],"required_tools":["sql_analytics"]},
+  {"id":"trend-03","question":"支付失败主要集中在哪个版本？","expects_evidence":true,"required_terms":["3.2.1","16"],"required_tools":["sql_analytics"]},
+  {"id":"evidence-01","question":"调查3.2.1的支付事故并给证据","expects_evidence":true,"required_terms":["服务端日志"],"required_tools":["knowledge_search","evidence_synthesizer"]},
+  {"id":"evidence-02","question":"版本变更能否证明支付故障的原因？","expects_evidence":true,"required_terms":["相关性","因果"],"required_tools":["sql_analytics","knowledge_search"]},
+  {"id":"refuse-01","question":"退款为什么还没有到账？","expects_evidence":false,"required_terms":["不生成原因结论"],"required_tools":["intent_router"]},
+  {"id":"refuse-02","question":"登录验证码为什么收不到？","expects_evidence":false,"required_terms":["只支持支付失败"],"required_tools":["intent_router"]},
+  {"id":"refuse-03","question":"帮我写一封客户回复邮件","expects_evidence":false,"required_terms":["避免无证据猜测"],"required_tools":["intent_router"]},
+  {"id":"refuse-04","question":"应用闪退的根因是什么？","expects_evidence":false,"required_terms":["当前 V1"],"required_tools":["intent_router"]},
+  {"id":"boundary-01","question":"支付问题有没有确定的因果证据？","expects_evidence":true,"required_terms":["仍需","因果"],"required_tools":["evidence_synthesizer"]},
+  {"id":"boundary-02","question":"3.2.1更新后有什么风险？","expects_evidence":true,"required_terms":["支付 SDK"],"required_tools":["knowledge_search"]},
+  {"id":"known-failure-01","question":"Android新版购买会员异常是什么原因？","expects_evidence":true,"required_terms":["3.2.1"],"required_tools":["sql_analytics"]}
+]

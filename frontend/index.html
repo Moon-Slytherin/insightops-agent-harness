@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>InsightOps Agent Harness</title>
+  <style>
+    :root{--ink:#172033;--muted:#687086;--paper:#f5f7fb;--card:#fff;--blue:#315efb;--red:#e5484d;--green:#208a61;--line:#e6e9f0}
+    *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font-family:Inter,"PingFang SC","Microsoft YaHei",sans-serif}
+    main{max-width:1120px;margin:auto;padding:44px 24px 80px}.eyebrow{color:var(--blue);font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+    h1{font-size:42px;margin:8px 0 6px;letter-spacing:-.03em}.sub{color:var(--muted);margin:0 0 30px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px;box-shadow:0 8px 25px rgba(23,32,51,.04)}.metric strong{font-size:30px;display:block;margin-top:8px}.metric span{color:var(--muted);font-size:13px}
+    .danger strong{color:var(--red)}.section{margin-top:18px}.section h2{font-size:18px;margin:0 0 15px}.question{display:flex;gap:10px}.question input{flex:1;border:1px solid var(--line);border-radius:10px;padding:13px 14px;font-size:15px}.question button{border:0;border-radius:10px;padding:0 20px;background:var(--blue);color:white;font-weight:700;cursor:pointer}
+    label{display:block;color:var(--muted);font-size:13px;margin-top:12px}.question select{border:1px solid var(--line);border-radius:10px;padding:10px;background:#fff}.result{display:none}.answer{font-size:16px;line-height:1.8;background:#f7f9ff;border-left:4px solid var(--blue);padding:15px;border-radius:8px}.cols{display:grid;grid-template-columns:1.3fr .7fr;gap:18px}.item{padding:13px 0;border-bottom:1px solid var(--line)}.item:last-child{border:0}.item b{display:block;margin-bottom:5px}.item small{color:var(--muted)}
+    .trace{list-style:none;padding:0;margin:0}.trace li{padding:10px 0 10px 25px;position:relative;border-left:2px solid #dce2ff}.trace li:before{content:"";position:absolute;left:-6px;top:15px;width:10px;height:10px;background:var(--green);border-radius:50%}.badge{display:inline-block;padding:4px 8px;border-radius:99px;background:#eaf7f1;color:var(--green);font-size:12px;font-weight:700}.loading{color:var(--muted)}
+    @media(max-width:760px){.grid{grid-template-columns:repeat(2,1fr)}.cols{grid-template-columns:1fr}.question{flex-direction:column}.question button{padding:13px}h1{font-size:32px}}
+  </style>
+</head>
+<body><main>
+  <div class="eyebrow">Recoverable · Observable · Evaluated</div>
+  <h1>InsightOps Agent Harness</h1>
+  <p class="sub">用工具调用循环调查产品事故；运行状态、证据和每一步执行轨迹均可查看。</p>
+  <section class="grid" id="metrics">
+    <div class="card metric"><span>反馈总量</span><strong id="total">—</strong></div>
+    <div class="card metric"><span>紧急反馈</span><strong id="urgent">—</strong></div>
+    <div class="card metric"><span>本周支付失败</span><strong id="current">—</strong></div>
+    <div class="card metric danger"><span>较前一周增长</span><strong id="growth">—</strong></div>
+  </section>
+  <section class="card section">
+    <h2>调查一个产品事故</h2>
+    <div class="question"><input id="question" value="3.2.1 版本发布后，支付失败投诉为什么突然增加？"><select id="mode" aria-label="运行模式"><option value="demo">离线演示</option><option value="openai">OpenAI API</option></select><button onclick="investigate()">开始调查</button></div>
+    <label>离线模式使用脚本模型演示真实工具执行；OpenAI 模式需在服务端配置 OPENAI_API_KEY。</label>
+  </section>
+  <section class="result section" id="result">
+    <div class="card"><h2>调查结论 <span class="badge" id="confidence"></span></h2><p class="answer" id="answer"></p><small id="runId"></small><button id="resume" style="display:none;margin-left:12px" onclick="resumeRun()">继续运行</button></div>
+    <div class="cols section">
+      <div class="card"><h2>证据</h2><div id="evidence"></div></div>
+      <div class="card"><h2>执行轨迹</h2><ol class="trace" id="trace"></ol></div>
+    </div>
+  </section>
+  <section class="card section">
+    <h2>可靠性评测</h2>
+    <div class="cols">
+      <div><span class="sub">Harness 离线回归</span><div style="font-size:38px;font-weight:800;margin-top:8px" id="evalRate">—</div></div>
+      <div><span class="sub">检查维度</span><div id="evalFailure" style="line-height:1.6;margin-top:8px">工具选择、证据回答与无证据拒答</div></div>
+    </div>
+  </section>
+</main>
+<script>
+async function loadDashboard(){const r=await fetch('/api/dashboard');const d=await r.json();total.textContent=d.total_feedback;urgent.textContent=d.urgent_feedback;current.textContent=d.current_period_payment_failures;growth.textContent='+'+d.growth_rate_percent+'%'}
+async function loadEvals(){const r=await fetch('/api/harness/evals');const d=await r.json();document.getElementById('evalRate').textContent=d.passed+'/'+d.total+' · '+Math.round(d.passed/d.total*100)+'%';const failed=d.cases.find(x=>!x.passed);document.getElementById('evalFailure').textContent=failed?'未通过：'+failed.id:'工具选择、证据回答与无证据拒答'}
+function escapeHtml(v){const e=document.createElement('div');e.textContent=v;return e.innerHTML}
+let lastRunId=null;
+async function showRun(d){lastRunId=d.run_id;document.getElementById('runId').textContent='Run ID: '+d.run_id;document.getElementById('answer').textContent=d.answer||d.error||'等待执行';document.getElementById('confidence').textContent=d.status;document.getElementById('resume').style.display=d.status==='paused'?'inline-block':'none';const r=await fetch('/api/harness/runs/'+d.run_id+'/events');const events=await r.json();const tools=events.filter(x=>x.kind==='tool_result');document.getElementById('evidence').innerHTML=tools.map(x=>`<div class="item"><b>${escapeHtml(x.detail.name)}</b><div>${escapeHtml(JSON.stringify(x.detail.result.data||x.detail.result.error))}</div></div>`).join('')||'<div class="item">没有取得可用证据</div>';document.getElementById('trace').innerHTML=events.map(x=>`<li><b>${escapeHtml(x.kind)}</b><div>${escapeHtml(JSON.stringify(x.detail))}</div></li>`).join('');document.getElementById('result').scrollIntoView({behavior:'smooth'})}
+async function investigate(){document.getElementById('result').style.display='block';document.getElementById('answer').textContent='正在调用模型与工具…';document.getElementById('evidence').innerHTML='';document.getElementById('trace').innerHTML='';try{const r=await fetch('/api/harness/runs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:document.getElementById('question').value,mode:document.getElementById('mode').value})});const d=await r.json();if(!r.ok)throw Error(d.detail||'请求失败');await showRun(d)}catch(e){document.getElementById('answer').textContent=e.message;document.getElementById('confidence').textContent='请求失败'}}
+async function resumeRun(){if(!lastRunId)return;const r=await fetch('/api/harness/runs/'+lastRunId+'/resume',{method:'POST'});const d=await r.json();if(r.ok)await showRun(d);else document.getElementById('answer').textContent=d.detail||'恢复失败'}
+loadDashboard();
+loadEvals();
+</script></body></html>

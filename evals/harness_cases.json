@@ -1,0 +1,6 @@
+[
+  {"id":"incident_exact","question":"3.2.1 版本发布后支付失败投诉为什么增加？","required_tools":["payment_metrics","search_incident_docs"],"required_phrases":["260.0%","3.2.1","不能证明因果"]},
+  {"id":"incident_paraphrase","question":"新版购买会员异常增多，有什么证据？","required_tools":["payment_metrics","search_incident_docs"],"required_phrases":["5 条","18 条","data/knowledge/"]},
+  {"id":"unsupported_refusal","question":"退款没有到账的根因是什么？","required_tools":[],"required_phrases":["无法凭现有证据判断"]},
+  {"id":"unrelated_refusal","question":"员工考勤异常的原因是什么？","required_tools":[],"required_phrases":["无法凭现有证据判断"]}
+]
