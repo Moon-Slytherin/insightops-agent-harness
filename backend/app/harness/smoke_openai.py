@@ -1,4 +1,4 @@
-"""Opt-in, real API smoke check. Run only with an OPENAI_API_KEY set locally."""
+"""Opt-in real API smoke check. Run only with a provider key set locally."""
 
 import asyncio
 import os
@@ -12,17 +12,20 @@ from backend.app.harness.store import RunStore
 QUESTION = "3.2.1 版本发布后支付失败投诉为什么增加？请先查询统计和产品文档，说明证据与不确定性。"
 
 
-async def main() -> int:
-    if not os.getenv("OPENAI_API_KEY"):
-        print("请先在本机设置 OPENAI_API_KEY；不要把密钥写入仓库。")
+async def main(mode: str = "openai") -> int:
+    key_name = {"openai": "OPENAI_API_KEY", "deepseek": "DEEPSEEK_API_KEY"}[mode]
+    if not os.getenv(key_name):
+        print(f"请先在本机设置 {key_name}；不要把密钥写入仓库。")
         return 2
     with tempfile.TemporaryDirectory() as temp:
         store = RunStore(Path(temp) / "real_api_smoke.db")
-        run = await Harness(store).start(QUESTION, mode="openai")
+        run = await Harness(store).start(QUESTION, mode=mode)
         names = [item["name"] for item in run["transcript"]
                  if item.get("type") == "function_call"]
+        event_kinds = [item["kind"] for item in store.events(run["run_id"])]
         print(f"status={run['status']} rounds={run['rounds']} tool_calls={run['tool_calls']}")
         print(f"tools={names}")
+        print(f"events={event_kinds}")
         if run["status"] != "completed":
             print(f"error={run['error']}")
             return 1

@@ -28,8 +28,8 @@
   </section>
   <section class="card section">
     <h2>调查一个产品事故</h2>
-    <div class="question"><input id="question" value="3.2.1 版本发布后，支付失败投诉为什么突然增加？"><select id="mode" aria-label="运行模式"><option value="demo">离线演示</option><option value="openai">OpenAI API</option></select><button onclick="investigate()">开始调查</button></div>
-    <label>离线模式使用脚本模型演示真实工具执行；OpenAI 模式需在服务端配置 OPENAI_API_KEY。</label>
+    <div class="question"><input id="question" value="3.2.1 版本发布后，支付失败投诉为什么突然增加？"><select id="mode" aria-label="运行模式"><option value="demo">离线演示</option><option value="deepseek">DeepSeek API</option><option value="openai">OpenAI API</option></select><button onclick="investigate()">开始调查</button></div>
+    <label>离线模式不调用大模型；DeepSeek / OpenAI 模式需在服务端配置对应平台的密钥和可用额度。</label>
   </section>
   <section class="result section" id="result">
     <div class="card"><h2>调查结论 <span class="badge" id="confidence"></span></h2><p class="answer" id="answer"></p><small id="runId"></small><button id="resume" style="display:none;margin-left:12px" onclick="resumeRun()">继续运行</button></div>

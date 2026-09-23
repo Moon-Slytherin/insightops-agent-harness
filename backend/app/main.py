@@ -31,7 +31,7 @@ harness = Harness(RunStore())
 
 class HarnessRequest(BaseModel):
     question: str = Field(min_length=4, max_length=300)
-    mode: Literal["demo", "openai"] = "demo"
+    mode: Literal["demo", "openai", "deepseek"] = "demo"
 
 
 @app.post("/api/harness/runs")

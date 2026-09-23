@@ -3,9 +3,13 @@
 import asyncio
 import contextlib
 import json
+import time
 from typing import Callable
 
-from backend.app.harness.model import DemoModel, Model, OpenAIResponses
+import httpx
+
+from backend.app.harness.model import DeepSeekResponses, DemoModel, Model, OpenAIResponses
+from backend.app.harness.grounding import validate_answer
 from backend.app.harness.store import LeaseLost, RunStore
 from backend.app.harness.tools import TOOLS, execute
 
@@ -15,15 +19,17 @@ class Harness:
                  max_rounds: int = 6, max_tool_calls: int = 8, tool_timeout: float = 5.0,
                  lease_seconds: float = 30.0):
         self.store = store
-        self.model_factory = model_factory or (lambda mode: DemoModel() if mode == "demo" else OpenAIResponses())
+        self.model_factory = model_factory or (lambda mode: {
+            "demo": DemoModel, "openai": OpenAIResponses, "deepseek": DeepSeekResponses
+        }[mode]())
         self.max_rounds = max_rounds
         self.max_tool_calls = max_tool_calls
         self.tool_timeout = tool_timeout
         self.lease_seconds = lease_seconds
 
     async def start(self, question: str, mode: str = "demo") -> dict:
-        if mode not in ("demo", "openai"):
-            raise ValueError("mode must be demo or openai")
+        if mode not in ("demo", "openai", "deepseek"):
+            raise ValueError("mode must be demo, openai or deepseek")
         model = self.model_factory(mode)  # validate configuration before creating run
         run = self.store.create(question, mode)
         claimed, token = self.store.acquire(run["run_id"], self.lease_seconds)
@@ -100,10 +106,15 @@ class Harness:
                 # One retry for transient model errors; checkpoint a failure for later resume.
                 for attempt in range(2):
                     try:
+                        model_started = time.perf_counter()
                         items = await model.respond(run["transcript"], [t.spec() for t in TOOLS.values()])
+                        model_latency_ms = round((time.perf_counter() - model_started) * 1000, 2)
                         break
-                    except Exception:
-                        if attempt:
+                    except Exception as exc:
+                        # Configuration/billing failures cannot be fixed by an
+                        # immediate retry. Preserve the run for a later resume.
+                        if attempt or (isinstance(exc, httpx.HTTPStatusError)
+                                       and exc.response.status_code in (400, 401, 402, 403)):
                             raise
                         self.store.save(run, "model_retry", {"attempt": 1}, token)
                         await asyncio.sleep(0.1)
@@ -125,15 +136,43 @@ class Harness:
                 run["rounds"] += 1
                 run["status"] = "running"
                 run["error"] = None
-                self.store.save(run, "model_response", {"round": run["rounds"],
-                                "call_ids": [item["call_id"] for item in calls]}, token)
+                self.store.save(run, "model_response", {
+                    "round": run["rounds"],
+                    "call_ids": [item["call_id"] for item in calls],
+                    "latency_ms": model_latency_ms,
+                    "usage": getattr(model, "last_usage", {}) or {},
+                }, token)
                 if calls:
                     continue
                 texts = [part.get("text", "") for item in items if item.get("type") == "message"
                          for part in item.get("content", []) if part.get("type") == "output_text"]
                 if not any(texts):
                     raise ValueError("model produced neither a call nor a final answer")
-                run["answer"] = "\n".join(texts)
+                candidate = "\n".join(texts)
+                issues = validate_answer(candidate)
+                if issues:
+                    feedback_count = sum(
+                        item.get("role") == "user"
+                        and str(item.get("content", "")).startswith("[EVIDENCE_VALIDATION]")
+                        for item in run["transcript"]
+                    )
+                    self.store.save(run, "answer_rejected", {"issues": issues}, token)
+                    if feedback_count >= 1:
+                        run["status"] = "paused"
+                        run["error"] = "answer_validation_failed: " + "; ".join(issues)
+                        self.store.save(run, "paused", {"error": run["error"]}, token)
+                        return run
+                    run["transcript"].append({
+                        "role": "user",
+                        "content": (
+                            "[EVIDENCE_VALIDATION] 最终答案未通过确定性校验："
+                            + "；".join(issues)
+                            + "。请仅依据已有工具结果重写答案，修正数字关系，不要调用新工具。"
+                        ),
+                    })
+                    self.store.save(run, "answer_revision_requested", {"issues": issues}, token)
+                    continue
+                run["answer"] = candidate
                 run["status"] = "completed"
                 self.store.save(run, "completed", {"answer": run["answer"]}, token)
                 return run

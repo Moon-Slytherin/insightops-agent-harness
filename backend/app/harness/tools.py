@@ -49,10 +49,17 @@ def knowledge(args: dict) -> dict:
 
 TOOLS = {
     item.name: item for item in (
-        Tool("payment_metrics", "Read payment incident counts and version distribution from the local data.",
+        Tool("payment_metrics", (
+             "仅返回固定统计窗口内的支付失败投诉总数、上期总数、增长率，以及 "
+             "3.2.1/3.2.0 版本分布。仅在问题需要这些数字时调用。"
+             "不包含退款到账、会员开通、Android/iOS 平台拆分、服务端错误码、安装量、"
+             "支付尝试次数或真实失败率。"),
              {"type": "object", "properties": {"category": {"type": "string", "description": "支付失败"}},
               "required": ["category"], "additionalProperties": False}, metrics),
-        Tool("search_incident_docs", "Search local incident documents for evidence with source paths.",
+        Tool("search_incident_docs", (
+             "仅搜索本地的 3.2.1 发布说明和支付事故排查手册，并返回来源路径。"
+             "仅在问题需要版本变更、排查步骤或事故文档证据时调用。"
+             "不包含退款到账、会员开通、源代码、服务端日志/错误码、安装量或平台统计。"),
              {"type": "object", "properties": {"query": {"type": "string"}},
               "required": ["query"], "additionalProperties": False}, knowledge),
     )
