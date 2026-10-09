@@ -1,63 +1,76 @@
-# AgentHarness Lab · InsightOps Demo
+# InsightOps Agent Harness
 
-一个面向多工具 Agent 的小型运行时：负责让模型调用工具、保存状态、失败恢复、记录轨迹并执行评测。支付事故调查只是用来证明运行时能力的业务 Demo，不是产品反馈管理平台。
+**一个负责让多工具 Agent 稳定运行、失败后能够恢复，并且可以被完整检查和评测的后端运行系统。**
+
+它不是普通聊天机器人，也不是用户反馈管理平台。大模型负责理解任务、选择工具和组织答案；InsightOps Agent Harness 负责模型外面的执行工作：校验工具参数、调用工具、限制执行次数、处理超时和重试、保存任务进度、记录完整轨迹，并用自动评测检查 Agent 的行为。
+
+项目使用“支付失败投诉突然增加”作为演示任务：用户提出调查问题后，模型会自主选择统计查询和产品文档检索工具，系统执行工具并把结果交还模型，最终生成带数据依据和不确定性说明的调查结论。这个业务场景只是用来验证运行系统，不是项目本身的边界。
 
 ![InsightOps 演示页面](docs/demo.png)
 
-## 它解决什么问题
+## 谁会使用它
 
-大模型会生成文字，但一个可运行的 Agent 还需要外层程序处理工具参数、超时、重试、执行预算、进程中断和效果评测。本项目实现的就是这层 **Agent Harness**。
+- **Agent 研发工程师**：接入模型和工具，运行多轮 Function Calling，并处理任务失败与恢复。
+- **AI 应用后端工程师**：通过 FastAPI 创建任务、读取状态和执行轨迹，把 Agent 能力接入业务系统。
+- **测试开发与 Agent 评测工程师**：构造正常、异常和安全场景，检查工具选择、事实、数字、拒答和恢复行为。
 
-用户询问“3.2.1 发布后支付失败投诉为什么增加”，模型可自主选择只读统计与文档检索工具；Harness 验证参数、执行工具、把结果送回模型并保存全过程。若进程或 API 失败，任务会暂停并可从 SQLite 检查点恢复。
+## 一次任务如何运行
 
 ```mermaid
 flowchart TD
-    A[用户问题] --> B[模型选择工具]
-    B --> C[Schema 校验与白名单]
-    C --> D[只读工具执行]
-    D --> E[SQLite 检查点与事件]
+    A[用户提交调查任务] --> B[模型理解任务并选择工具]
+    B --> C[参数校验与工具白名单]
+    C --> D[执行统计查询或文档检索]
+    D --> E[保存检查点与事件轨迹]
     E --> B
-    B --> F[证据化回答]
-    F --> G[离线与真实模型评测]
+    B --> F[生成带证据的回答]
+    F --> G[自动评测执行结果]
 ```
 
-## 已实现并验证
+以“3.2.1 发布后支付失败投诉为什么增加”为例：
 
-| 能力 | 实现 | 验证状态 |
+1. FastAPI 接收任务并创建 `run_id`；
+2. DeepSeek 或离线脚本模型判断需要哪些工具；
+3. Harness 使用 Pydantic 校验工具名称和参数；
+4. 运行只读统计与文档检索工具，并记录参数、结果、耗时和错误；
+5. 每一轮状态写入 SQLite，进程或模型调用失败时任务暂停；
+6. 恢复请求从最近检查点继续，而不是从头重复执行；
+7. 模型根据工具证据生成结论，系统再执行数字一致性检查；
+8. 评测程序检查工具选择、关键事实、拒答边界和最终答案。
+
+## 核心能力
+
+| 能力 | 项目中的实现 | 验证方式 |
 |---|---|---|
-| 多轮 Agent Loop | 模型响应 → 工具调用 → 工具结果回传 → 最终回答 | DeepSeek 真实 API 已跑通 |
-| Provider 适配 | DeepSeek Chat Completions；OpenAI Responses API | DeepSeek 已真实验证；OpenAI 仅模拟 HTTP 契约测试 |
-| 工具安全 | 白名单、Pydantic 严格参数、拒绝额外字段、结果长度限制 | 自动测试 |
-| 可恢复执行 | SQLite checkpoint、暂停/恢复、未完成工具调用续跑 | 自动测试 |
-| 并发安全 | 单 run 租约、心跳续约、过期接管、旧 worker 禁止写入 | 自动测试 |
-| 可靠性控制 | 模型/工具重试、超时、轮次和工具调用预算 | 自动测试 |
-| 可观测性 | 事件轨迹、参数、结果、错误、模型延迟和 Token 用量 | 自动测试 + 真实报告 |
-| 答案保护 | 发布前检查明显的数字子集矛盾，可要求模型重写 | 自动测试 |
-| Evals | 4条确定性离线回归 + 20条 DeepSeek 真实场景 | 已执行并保留报告 |
+| 多轮 Agent Loop | 模型响应 → 工具调用 → 结果回传 → 继续推理 → 最终回答 | DeepSeek 真实 API |
+| 模型适配 | DeepSeek Chat Completions、OpenAI Responses API | DeepSeek 端到端；OpenAI HTTP 契约测试 |
+| 工具调用 | 工具注册、白名单、Pydantic 严格参数校验、结果长度限制 | 自动化测试 |
+| 可恢复执行 | SQLite Checkpoint、暂停/恢复、未完成调用续跑 | 故障恢复测试 |
+| 并发控制 | 单任务租约、心跳续约、过期接管、旧 Worker 写入隔离 | 多 Worker 测试 |
+| 可靠性控制 | 模型与工具重试、超时、轮次预算和工具调用预算 | 故障注入测试 |
+| 可观测性 | 事件轨迹、工具参数与结果、异常、模型延迟、Token 用量 | 自动化测试与真实报告 |
+| 答案校验 | 发布前检查明显的数字包含关系矛盾，触发模型重写 | 回归测试 |
+| Agent Evals | 4 条确定性离线回归 + 20 条 DeepSeek 真实场景 | 已保存评测报告 |
 
-当前共有 **44 条 Pytest 用例通过**。
+当前项目共有 **44 条 Pytest 自动化测试通过**。
 
-## 真实评测结果
+## 真实模型评测
 
-最终 DeepSeek 报告使用20条项目自建案例，覆盖正常调查、单工具问题、因果陷阱、数据范围外拒答、错误前提、Prompt Injection 和越权请求。这不是公开 Benchmark，也不代表生产环境准确率。
+项目使用 20 条自建场景测试 DeepSeek，覆盖完整调查、单工具查询、因果陷阱、超出数据范围、错误前提、Prompt Injection 和越权请求。这组数据用于验证当前系统的回归行为，不冒充公开 Benchmark。
 
-| 指标 | 最终复核结果 |
+| 指标 | 保存报告的复核结果 |
 |---|---:|
 | 运行完成率 | 20/20（100%） |
 | 工具执行成功率 | 20/20（100%） |
 | 工具选择符合预期 | 19/20（95%） |
 | 关键事实命中 | 19/20（95%） |
-| 拒答/因果边界 | 20/20（100%） |
+| 拒答与因果边界 | 20/20（100%） |
 | 数字一致性 | 20/20（100%） |
 | 严格整题通过 | 19/20（95%） |
-| 模型调用总耗时 | 49.99 秒 |
 | 平均模型调用耗时/案例 | 2.50 秒 |
-| 总 Token | 31,173 |
 | 平均 Token/案例 | 1,558.65 |
 
-一次最终 API 原始报告经最新规则离线复算得到19/20；没有重新生成答案。复核规则接受“因果关系尚不能确认”等等价表达，也允许“依据明确工具边界直接拒答”和“检索相关文档后拒答”两种合理路径。唯一保留的真实失败是 `causal_trap`：模型没有先检索文档，并错误声称文档中不存在 SDK 5.8.0。模型输出存在随机性，因此该结果只代表已保存的这次运行，不承诺每次都稳定为19/20。
-
-完整分析见 [DeepSeek 基线与故障分析](docs/EVAL_BASELINE_ANALYSIS.md)。
+最终原始 API 报告使用最新确定性规则离线复算后为 **19/20**。评测规则接受语义等价表达，唯一保留的失败案例是 `causal_trap`。完整过程见 [DeepSeek 基线与故障分析](docs/EVAL_BASELINE_ANALYSIS.md)。
 
 ## 快速开始
 
@@ -70,31 +83,33 @@ python -m pytest -q
 python -m uvicorn backend.app.main:app --reload
 ```
 
-打开 <http://127.0.0.1:8000>。默认 `demo` 模式使用确定性脚本模型，不需要密钥；它会真实执行本地工具和 Harness，但不是大模型。
+打开 `http://127.0.0.1:8000`。默认 `demo` 模式使用确定性脚本模型，不需要 API Key；它会真实运行 Harness 和本地工具，适合演示与回归测试。
 
 主要接口：
 
 - `POST /api/harness/runs`：创建任务；
-- `GET /api/harness/runs/{run_id}`：读取检查点状态；
-- `GET /api/harness/runs/{run_id}/events`：查看执行轨迹；
+- `GET /api/harness/runs/{run_id}`：读取任务状态；
+- `GET /api/harness/runs/{run_id}/events`：读取执行轨迹；
 - `POST /api/harness/runs/{run_id}/resume`：恢复暂停任务；
-- `GET /api/harness/evals`：运行4条离线回归。
+- `GET /api/harness/evals`：运行离线场景评测。
 
-## 真实 DeepSeek 评测
+## 使用 DeepSeek 运行真实模型
 
-密钥只放在本机环境变量，不写入源码：
+API Key 只放在本机环境变量中，不写入源码：
 
 ```powershell
 $deepseekKey = (Get-Clipboard -Raw).Trim()
 $env:DEEPSEEK_API_KEY = $deepseekKey
+
 python -m backend.app.harness.smoke_deepseek
 python -m backend.app.harness.eval_deepseek --output .\evals\results\deepseek_final.json
+
 Remove-Item Env:DEEPSEEK_API_KEY
 $deepseekKey = $null
 Set-Clipboard -Value " "
 ```
 
-对已有报告使用最新确定性规则重新评分，不产生 API 费用：
+对已有报告重新评分不会调用 API，也不会产生费用：
 
 ```powershell
 python -m backend.app.harness.eval_deepseek `
@@ -102,40 +117,33 @@ python -m backend.app.harness.eval_deepseek `
   --output .\evals\results\deepseek_final_rescored.json
 ```
 
-只要存在失败案例，评测命令就返回退出码1，这是给 CI 使用的预期行为，不代表程序崩溃。
+只要存在失败案例，评测命令就返回退出码 1，便于 CI 判断回归是否通过。
 
 ## 代码结构
 
 ```text
 backend/app/harness/
-  model.py           Provider 适配与离线脚本模型
-  runtime.py         Agent Loop、预算、重试与答案发布
-  tools.py           工具契约、白名单与参数校验
-  store.py           SQLite 检查点、事件与租约
+  model.py           模型接口适配与离线脚本模型
+  runtime.py         Agent Loop、执行预算、重试与答案发布
+  tools.py           工具注册、白名单与参数校验
+  store.py           SQLite 检查点、事件轨迹与任务租约
   grounding.py       确定性数字一致性检查
-  eval.py            4条离线回归
-  eval_deepseek.py   20条真实评测、报告与离线复算
-evals/
-  harness_cases.json
-  deepseek_cases.json
-tests/
-frontend/
-docs/
+  eval.py            4 条离线场景评测
+  eval_deepseek.py   20 条真实模型评测、报告与离线复算
+backend/app/main.py  FastAPI 接口与演示页面
+evals/               评测数据与保存的结果
+tests/               自动化测试
+frontend/            演示界面
+docs/                架构与评测说明
 ```
 
-## 设计边界
+## 公开文档
 
-- 工具只读且数据为模拟数据；项目证明的是运行时工程方法，不是企业事故结论。
-- 文档检索是关键词检索，不是向量数据库。
-- 工具调用当前逐个执行，未实现并行工具调度。
-- `asyncio.to_thread` 超时无法终止底层线程，因此带副作用的真实工具仍需幂等键和外部隔离。
-- 尚未实现 SSE、MCP、Sandbox、HITL、多 Agent 和长期记忆；README 不把它们写成已有能力。
-- 当前没有用户鉴权、数据保留策略和生产级脱敏，不能直接部署为企业生产服务。
-
-## 进一步阅读
-
-- [用人话理解这个项目](docs/PROJECT_EXPLAINED.md)
+- [架构说明](docs/ARCHITECTURE.md)
 - [真实模型评测说明](docs/REAL_MODEL_EVAL.md)
-- [基线、误判与真实失败](docs/EVAL_BASELINE_ANALYSIS.md)
-- [面试讲述稿](docs/INTERVIEW_PITCH.md)
-- [简历项目表述](docs/RESUME_BULLETS.md)
+- [基线、误判与真实失败分析](docs/EVAL_BASELINE_ANALYSIS.md)
+- [DeepSeek 配置说明](docs/DEEPSEEK_SETUP.md)
+
+## 项目范围
+
+演示工具均为只读操作，使用模拟反馈数据和本地产品文档。项目重点是 Agent 的运行、恢复、观测和评测机制，不对模拟业务数据作真实企业结论。
